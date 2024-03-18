@@ -1,0 +1,1 @@
+duration=21 [s],framerate=31.0 [FPS]
