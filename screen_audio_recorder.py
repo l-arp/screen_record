@@ -6,7 +6,6 @@ Created on Sat Jul 29 22:31:00 2023
 """
 
 # %% IMPORTS
-from tkinter import Tk, Frame, Entry, Label, Button
 import os
 import time
 import subprocess
@@ -19,6 +18,8 @@ import win32api
 import win32con
 from pynput.keyboard import Key, Listener
 
+import sys
+from tkinter import Tk, Frame, Entry, Label, Button, messagebox
 
 #%% KEYBOARD DETECTION FUNCTION
 def on_release(key):
@@ -37,7 +38,7 @@ def video_capture(duration,FPS,ffmeg_exe_loc, start_time,show_mouse):
 #    start_time = start_time/10**9
         
     # log video record start
-    log = open("log.txt","a")
+    log = open("log_video.txt","a")
     log.write("\n\nvideo record started:\n\t {} local time\n\t {} [ns] (since epoch)".format(time.ctime(),time.time_ns()))
     log.close()
     
@@ -51,20 +52,26 @@ def video_capture(duration,FPS,ffmeg_exe_loc, start_time,show_mouse):
                             shell=True,
                             stderr=subprocess.STDOUT,
                             stdin=subprocess.PIPE)
+    # subprocess poll to check is_alive
+    # if poll is None -> p is alive
+    
     p.stdin.close()
+    
     # start keyboard listening
     listener_video = Listener(on_release=on_release)
     listener_video.start()
     start_time = time.time()
     # if alt_gr is pressed or recording time is up
-    while time.time()-start_time < duration+5 and listener_video.isAlive():
+    # while time.time()-start_time < duration+5 and listener_video.is_alive():
+    while listener_video.is_alive() and p.poll() is None:
         time.sleep(0.1)
     # break keyboard listening
     listener_video.stop()
     # THIS IS OK but python script should not be included
 #    subprocess.check_call([sys.executable, 'ctrl_c.py', str(p.pid)])
 
-    if time.time()-start_time < duration+5:
+    # if time.time()-start_time < duration+5:
+    if p.poll() is None:
         import ctypes
         
         kernel = ctypes.windll.kernel32
@@ -75,35 +82,26 @@ def video_capture(duration,FPS,ffmeg_exe_loc, start_time,show_mouse):
         kernel.AttachConsole(pid)
         kernel.SetConsoleCtrlHandler(None, 1)
         kernel.GenerateConsoleCtrlEvent(0, 0)
-#        sys.exit()
+        # sys.exit()
         quit()
     
-    
-    
-    
-
-    # log video record start
-    log = open("log.txt","a")
+    #  # log video record finish (not precise cause of alt_gr watcher)
+    # p.stdin.close()
+    log = open("log_video.txt","a")
     log.write("\n\nvideo record finished:\n\t {} local time\n\t {} [ns] (since epoch)".format(time.ctime(),time.time_ns()))
     log.close()
 # %% AUDIO RECORD FUNCTION
-def sound(duration):
-    # background sound (low volume, not noticable)
-    # sound record does not start if there is no system sound
-    start_time = time.time()
-    while time.time()-start_time<duration:
-        playsound('intro.wav')
         
 def audio_record(duration,start_time):
-    sound_for_start = Thread(target=sound,args=(duration,))
-    sound_for_start.start()
+    # sound_for_start = Thread(target=sound,args=(duration,))
+    # sound_for_start.start()
     while (time.time_ns()-start_time<5*10**9):
         time.sleep(10**-9)
     filename = "audio.wav"
     DURATION = duration
     CHUNK_SIZE = 512
-    # log video record start
-    log = open("log.txt","a")
+    # log audio record start
+    log = open("log_audio.txt","a")
     log.write("\n\naudio record started:\n\t {} local time\n\t {} [ns] (since epoch)".format(time.ctime(),time.time_ns()))
     log.close()
     # from stackoverflow
@@ -162,38 +160,44 @@ def audio_record(duration,start_time):
             After leaving the context, everything will
             be correctly closed(Stream, PyAudio manager)            
             """
-            # spinner.print(f"The next {DURATION} seconds will be written to {filename}")
+            # spinners.print(f"The next {DURATION} seconds will be written to {filename}")
             
             
             # időközönként chekkolni hogy érkezett-e exit
             
 #            time.sleep(DURATION) # Blocking execution while playing
-            start_time = time.time()
+            start_time = time.time_ns()
             # start keyboard listening
             listener_audio = Listener(on_release=on_release)
             listener_audio.start()
             # if alt_gr is pressed or recording time is up
-            while time.time()-start_time < DURATION and listener_audio.isAlive():
+            while time.time_ns()-start_time < DURATION*1E9 and listener_audio.is_alive():
                 time.sleep(0.1)
             # break keyboard listening
             listener_audio.stop()
-        recording_end_voice = Thread(target=end_voice,args=())
-        recording_end_voice.start()
+        # recording_end_voice = Thread(target=end_voice,args=())
+        # recording_end_voice.start()
         wave_file.close()
         
-    # log video record start
-    log = open("log.txt","a")
+    # log recording finish time
+    log = open("log_audio.txt","a")
     log.write("\n\naudio record finished:\n\t {} local time\n\t {} [ns] (since epoch)".format(time.ctime(),time.time_ns()))
     log.close()
 
 #%% VOICE FUNCTIONS
-def countdown(start_time):
+def countdown(start_time, development_mode):
     while True:
         if time.time_ns()>start_time+10**9:
-            playsound('countdown_4_sec.wav')
+            if not development_mode:
+                playsound(os.path.join(sys._MEIPASS,"countdown_4_sec.wav"))
+            else:
+                playsound("countdown_4_sec.wav")
             return
-def end_voice():
-    playsound("recording_finished.wav")
+def end_voice(development_mode):
+    if not development_mode:
+        playsound(os.path.join(sys._MEIPASS,"recording_finished.wav"))
+    else:
+        playsound("recording_finished.wav")
 
 def merging(video_input, audio_input, merged_output, ffmpeg_exe_loc):
     # log after recording
@@ -237,6 +241,10 @@ def start_record():
         log.write("\n\nRecording process started:\n\t {} local time\n\t {} [ns] (since epoch)".format(time.ctime(),time.time_ns()))
         log.close()
         
+        if getattr(sys, "frozen", False):
+            development_mode = False
+        else:
+            development_mode = True
         # recording params
         ffmeg_exe_loc = os.getcwd()+"\\ffmpeg\\bin\\ffmpeg.exe"
         output_format = ".mp4"
@@ -254,13 +262,17 @@ def start_record():
         start_time = time.time_ns()
         
         # call recording functions
-        countdown_at_start = Thread(target=countdown,args=(start_time,))
+        countdown_at_start = Thread(target=countdown,args=(start_time,development_mode))
         countdown_at_start.start()        
         audio = Thread(target=audio_record, args=(duration,start_time))
         audio.start()
         video_capture(duration,FPS,ffmeg_exe_loc,start_time,show_mouse)
-        audio.join() 
-
+        audio.join()
+        
+        
+        # end debug
+        
+        end_voice(development_mode)
         # video-audio merging params
         curr_dir = os.getcwd()
         output_format = ".mp4"
@@ -308,7 +320,9 @@ def start_record():
     # check input params
     except Exception as e:
        print("\nError: {}\n".format(e))
-        
+
+def raise_error(error_type, error_text):
+    messagebox.showerror(error_type,error_text)     
 def raise_start_frame(frame):
    global entry
    try:
@@ -316,10 +330,15 @@ def raise_start_frame(frame):
        minute = int(entry_i_m.get())
        second = int(entry_i_s.get())
        fps = float(entry_i_fps.get())
-       if (minute>59 or second>59 or hour<0 or minute<0 or second<0):
-           print("\nERROR: minutes and seconds must be between 0 and 59!!\n")
-       elif(fps<1 or fps>240):
-           print("\nERROR: FPS must be between 1 and 240!!\n")
+       if (minute>59 or second>59 or minute<0 or second<0):
+           # print("\nERROR: minutes and seconds must be between 0 and 59!!\n")
+           raise_error("INPUT ERROR","Minutes and seconds must be between 0 and 59!!\n")
+       elif (fps<1 or fps>240):
+           # print("\nERROR: FPS must be between 1 and 240!!\n")
+           raise_error("INPUT ERROR","FPS must be between 1 and 240!!\n")
+       elif (hour==0 and minute == 0 and second<5):
+           # print("\nERROR: recording must be at 5 seconds long!!\n")
+           raise_error("INPUT ERROR","Recording must be at least 5 seconds long!!\n")
        else:
            print("hours: {}\nminutes: {}\nsecond:{}".format(hour,minute,second))
            print("seconds: {}".format(hour*3600+minute*60+second))
@@ -376,19 +395,37 @@ for frame in (init, start, progress, done):
     # hour entry
 entry_i_h = Entry(init,width=3, font=('Arial 16'))
 entry_i_h.focus_set()
+entry_i_h.insert(0,string=str(0))
 # entry_h.pack()
 entry_i_h.place(x=180,y=50)
     # minute entry
 entry_i_m = Entry(init,width=3, font=('Arial 16'))
 entry_i_m.focus_set()
+entry_i_m.insert(0,string=str(0))
 entry_i_m.pack()
 entry_i_m.place(x=10,y=50)
 entry_i_m.place(x=180,y=100)
     # second entry
 entry_i_s= Entry(init,width=3, font=('Arial 16'))
 entry_i_s.focus_set()
+entry_i_s.insert(0,string=str(0))
 entry_i_s.pack()
 entry_i_s.place(x=180,y=150)
+    # fps entry
+entry_i_fps= Entry(init,width=5, font=('Arial 16'), textvariable="0")
+entry_i_fps.focus_set()
+# entry_i_fps.insert(END,string=str(0))
+entry_i_fps.pack()
+entry_i_fps.place(x=330,y=150)
+
+#     # second entry example for dropdown menu
+# options_i_s = list(range(0,60))
+# drop_i_s = ttk.Combobox(init, values=options_i_s)
+# drop_i_s.set(options_i_m[0])
+# drop_i_s.pack()
+# drop_i_s.place(x=180,y=150)
+
+
     # fps entry
 entry_i_fps= Entry(init,width=5, font=('Arial 16'))
 entry_i_fps.focus_set()

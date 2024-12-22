@@ -1,0 +1,7 @@
+pyinstaller -F --onefile --add-data "recording_finished.wav;." --add-data "countdown_4_sec.wav;." screen_audio_recorder.py
+
+-------------------------------------------------------
+pyinstaller -F --onefile screen_audio_recorder.py
+check in cmd that "python" and "pip" commands are OK -> if not reinstall with PATH refreshed!
+
+
